@@ -54,3 +54,17 @@ Additional scripts for metrics and plotting are in `analysis/` and `plotting/`.
 - The analysis pipeline expects embeddings produced by the `generate/` step.  
 - Pseudotime computation is slow for full cohorts (~12 hours).  
 - Slide-aware sampling is implemented in the analysis code to reduce slide-level bias.
+
+
+## Citation
+
+If you find our work useful, please consider citing our paper:
+
+```bibtex
+@inproceedings{vig2026pathologyprogression,
+  title     = {Do Pathology Foundation Models Encode Disease Progression? A Pseudotime Analysis of Visual Representations},
+  author    = {Vig, Pritika and Wu, Ren-Chin and Lotter, William},
+  booktitle = {Advances in Neural Information Processing Systems},
+  year      = {2026}
+}
+```
