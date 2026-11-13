@@ -2,7 +2,7 @@
 
 Code and cached results for *Do Pathology Foundation Models Encode Disease
 Progression? A Pseudotime Analysis of Visual Representations* (Pritika Vig,
-Ren-Chin Wu, William Lotter).
+Ren-Chin Wu, William Lotter). Paper: [arXiv:2601.21334](https://arxiv.org/abs/2601.21334).
 
 The paper asks whether pathology foundation models arrange disease stages along
 a continuous progression in their embedding space. It applies diffusion
@@ -29,6 +29,7 @@ analyze_embeddings/    Step 2. DPT, trajectory fidelity and all downstream
   plots/paper/           The figures and tables as they appear in the paper
 tcga_kirc/             Appendix J. The same analysis on TCGA-KIRC against stage,
                        aneuploidy and survival.
+docs/                  Project page (served with GitHub Pages)
 REPRODUCING.md         Figure-by-figure and table-by-table commands
 requirements.txt       Pinned dependencies
 ```
@@ -112,10 +113,13 @@ the bucket instead, at `gs://<bucket>/<image_subdir>/train/...`, where
 ## Citation
 
 ```bibtex
-@article{vig2026pseudotime,
-  title  = {Do Pathology Foundation Models Encode Disease Progression?
-            A Pseudotime Analysis of Visual Representations},
-  author = {Vig, Pritika and Wu, Ren-Chin and Lotter, William},
-  year   = {2026}
+@inproceedings{vig2026pseudotime,
+  title     = {Do Pathology Foundation Models Encode Disease Progression?
+               A Pseudotime Analysis of Visual Representations},
+  author    = {Vig, Pritika and Wu, Ren-Chin and Lotter, William},
+  booktitle = {Advances in Neural Information Processing Systems},
+  year      = {2026},
+  eprint    = {2601.21334},
+  archivePrefix = {arXiv}
 }
 ```
