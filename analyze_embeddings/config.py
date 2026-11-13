@@ -1,14 +1,21 @@
+"""Configuration for the analysis pipeline.
+
+Run every script from the analyze_embeddings/ directory; paths below are
+relative to it.
+"""
 import os
 from datetime import datetime
-from typing import List, Dict, TypedDict
+from typing import List, TypedDict
 from pathlib import Path
 
+# ── Results and figures ───────────────────────────────────────────────────────
+# RESULTS_RUN names the results folder that plotting scripts read from and the
+# plots folder they write to. "paper" holds the cached results behind every
+# figure and table in the paper. Data generation scripts write to a new
+# timestamped folder (see get_output_dir); to plot from one, set RESULTS_RUN to
+# its name or export RESULTS_RUN=<folder>.
 RESULTS_DIR = Path("results")
-
-# ── Active run ────────────────────────────────────────────────────────────────
-# Update this after a successful data generation run.
-# Both results and plots directories are derived from this single value.
-RESULTS_RUN = "2025-01-01_000000"
+RESULTS_RUN = os.environ.get("RESULTS_RUN", "paper")
 
 RESULTS_RUN_DIR = RESULTS_DIR / RESULTS_RUN
 PLOTS_OUTPUT_DIR = Path("plots") / RESULTS_RUN
@@ -17,33 +24,55 @@ FULL_RESULTS_OUTPUT_PATH = RESULTS_RUN_DIR / "full_manifold_evaluation.csv"
 NULL_RESULTS_OUTPUT_PATH = RESULTS_RUN_DIR / "null_manifold_evaluation.csv"
 PERMUTATION_RESULTS_OUTPUT_PATH = RESULTS_RUN_DIR / "stage_permutation_specificity.csv"
 GENERALIZABILITY_RESULTS_OUTPUT_PATH = RESULTS_RUN_DIR / "generalizability_results.csv"
+K_SWEEP_RESULTS_PATH = RESULTS_RUN_DIR / "hyperparam_sweep_k_results.csv"
+BASELINE_RESULTS_PATH = RESULTS_RUN_DIR / "baseline_evaluation.csv"
+ORDERING_AGREEMENT_PATH = RESULTS_RUN_DIR / "ordering_agreement.csv"
+CELL_COUNTS_DIR = RESULTS_RUN_DIR / "cell_counts"
+SPLIT_HALF_DIR = RESULTS_RUN_DIR / "split_half"
+
+# ── Data locations ────────────────────────────────────────────────────────────
+# Embeddings are read from Google Cloud Storage at
+#   gs://<bucket>/<prefix>/<model>/*.parquet
+# as written by generate_embeddings/. The defaults are the authors' buckets,
+# which are not public: point these at your own buckets by editing the values
+# or exporting the environment variables. See the README ("Data access").
+SPIDER_SKIN_BUCKET = os.environ.get("SPIDER_SKIN_BUCKET", "spider-skin")
+SPIDER_COLORECTAL_BUCKET = os.environ.get("SPIDER_COLORECTAL_BUCKET", "spider-colorectal")
+SPIDER_BREAST_BUCKET = os.environ.get("SPIDER_BREAST_BUCKET", "spider-breast")
+EMBEDDING_PREFIX = "embeddings/computed"
+
+# Scripts that show or segment H&E patches read the SPIDER images from local
+# disk (the unpacked datasets, same layout generate_embeddings/ reads). Most of
+# them also accept --data_dir to override the folder for a single run.
+SPIDER_IMAGE_ROOT = Path(os.environ.get("SPIDER_IMAGE_ROOT", Path.home() / "data"))
+LOCAL_IMAGE_DIRS = {
+    SPIDER_COLORECTAL_BUCKET: SPIDER_IMAGE_ROOT / "spider-col",
+    SPIDER_SKIN_BUCKET: SPIDER_IMAGE_ROOT / "spider-skin",
+    SPIDER_BREAST_BUCKET: SPIDER_IMAGE_ROOT / "spider-breast",
+}
 
 
 def get_output_dir() -> Path:
-    """Get today's output directory inside RESULTS_DIR.
+    """Create and return a new timestamped output directory, results/YYYY-MM-DD_HHMMSS/.
 
-    Pattern: results/YYYY-MM-DD_HHMMSS/
-
-    Data generation scripts call this to create a timestamped output directory.
-    After a successful run, update RESULTS_RUN above to point plotting scripts
-    at the new data.
-
-    Returns:
-        Path to today's output directory.
+    Data generation scripts write here so a new run never overwrites the cached
+    paper results. Point RESULTS_RUN at the new folder to plot from it.
     """
     date_str = datetime.now().strftime("%Y-%m-%d_%H%M%S")
     output_dir = RESULTS_DIR / date_str
     output_dir.mkdir(parents=True, exist_ok=True)
     return output_dir
+
+
 class ProgressionConfig(TypedDict):
     name: str
     bucket: str
     prefix: str
     classes: List[str]
-    root_class: str 
+    root_class: str
     image_subdir: str
 
-# Define the models you expect to see. 
+# The six foundation models evaluated in the paper.
 EXPECTED_MODELS = [
     "virchow2",
     "uni2",
@@ -53,12 +82,14 @@ EXPECTED_MODELS = [
     "dinov2"
 ]
 
-# Define the progressions
+# The four disease progressions. "classes" is the ordinal stage order and
+# "root_class" the earliest stage (the DPT root is its medoid). "image_subdir"
+# is the SPIDER image layout used for that dataset.
 PROGRESSIONS: List[ProgressionConfig] = [
     {
         "name": "SCC",
-        "bucket": "spider-skin",
-        "prefix": "embeddings/computed",
+        "bucket": SPIDER_SKIN_BUCKET,
+        "prefix": EMBEDDING_PREFIX,
         "classes": [
             "Epidermis",
             "Actinic keratosis",
@@ -70,8 +101,8 @@ PROGRESSIONS: List[ProgressionConfig] = [
     },
     {
         "name": "CRC-Conventional",
-        "bucket": "spider-colorectal",
-        "prefix": "embeddings/computed",
+        "bucket": SPIDER_COLORECTAL_BUCKET,
+        "prefix": EMBEDDING_PREFIX,
         "classes": [
             "Adenoma low grade",
             "Adenoma high grade",
@@ -83,8 +114,8 @@ PROGRESSIONS: List[ProgressionConfig] = [
     },
     {
         "name": "CRC-Serrated",
-        "bucket": "spider-colorectal",
-        "prefix": "embeddings/computed",
+        "bucket": SPIDER_COLORECTAL_BUCKET,
+        "prefix": EMBEDDING_PREFIX,
         "classes": [
             "Hyperplastic polyp",
             "Sessile serrated lesion",
@@ -95,8 +126,8 @@ PROGRESSIONS: List[ProgressionConfig] = [
     },
     {
         "name": "BDC",
-        "bucket": "spider-breast",
-        "prefix": "embeddings/computed",
+        "bucket": SPIDER_BREAST_BUCKET,
+        "prefix": EMBEDDING_PREFIX,
         "classes": [
             "Ductal carcinoma in situ (low-grade)",
             "Ductal carcinoma in situ (high-grade)",

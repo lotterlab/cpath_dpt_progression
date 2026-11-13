@@ -1,0 +1,5 @@
+method,mean_spearman_with_dpt
+k-NN Geod.,0.859
+Centroid Dist.,0.834
+DC1,0.757
+PCA Proj.,0.682

@@ -199,6 +199,46 @@ def plot_main_figure(df, token_type='patch_mean'):
 
 
 # -----------------------------------------------------------------------------
+# Standalone Panel: Trajectory Fidelity vs Network Depth (single panel)
+# -----------------------------------------------------------------------------
+def plot_depth_tau_panel(df, token_type='cls'):
+    """Generate the network-depth tau panel as its own square figure."""
+    fig, ax_tau = plt.subplots(figsize=(6, 6), constrained_layout=True)
+
+    for model in pcfg.MODEL_ORDER:
+        model_df = df[df['model'] == model]
+        if model_df.empty:
+            continue
+
+        avg_df = model_df.groupby('depth')['tau'].mean().reset_index()
+
+        ax_tau.plot(
+            avg_df['depth'], avg_df['tau'],
+            color=pcfg.MODEL_COLORS[model],
+            marker=pcfg.MODEL_MARKERS[model],
+            linewidth=2,
+            markersize=7,
+            label=model
+        )
+
+    ax_tau.set_ylabel(r"Trajectory Fidelity ($\tau$)", fontsize=pcfg.FONT_SIZES['axis_label'])
+    ax_tau.set_xlabel("Network Depth (%)", fontsize=pcfg.FONT_SIZES['axis_label'])
+    ax_tau.set_ylim(0, 0.8)
+
+    ax_tau.set_xticks([0.125, 0.375, 0.625, 0.875, 1.0])
+    ax_tau.set_xticklabels(["12.5", "37.5", "62.5", "87.5", "100"])
+
+    ax_tau.yaxis.grid(True, linestyle='--', alpha=0.3)
+    format_legend_labels(ax_tau, loc='upper left')
+    sns.despine(ax=ax_tau)
+
+    output_path = OUTPUT_DIR / f"emergence_depth_tau_{token_type}.png"
+    plt.savefig(output_path, dpi=300, bbox_inches='tight')
+    plt.close()
+    print(f"✅ Depth-tau panel ({token_type}) saved to {output_path}")
+
+
+# -----------------------------------------------------------------------------
 # Appendix Figure: Three-Panel (for all token types)
 # Shows: (1) Tau vs relative depth, (2) ID divergence, (3) Tau vs absolute depth
 # -----------------------------------------------------------------------------
@@ -338,6 +378,9 @@ if __name__ == "__main__":
 
     print("Generating main text figure (stacked, cls)...")
     plot_main_figure(df_cls, token_type='cls')
+
+    print("Generating standalone depth-tau panel (cls)...")
+    plot_depth_tau_panel(df_cls, token_type='cls')
     
     # ==========================================================================
     # APPENDIX: Three-panel figures for all token types

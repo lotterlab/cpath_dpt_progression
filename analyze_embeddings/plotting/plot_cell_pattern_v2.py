@@ -59,11 +59,7 @@ STAGE_ORDER = [
 ]
 
 # Local image directories for cluster examples
-LOCAL_IMAGE_DIRS = {
-    "spider-colorectal": Path.home() / "data" / "spider-col",
-    "spider-skin": Path.home() / "data" / "spider-skin",
-    "spider-breast": Path.home() / "data" / "spider-breast",
-}
+LOCAL_IMAGE_DIRS = config.LOCAL_IMAGE_DIRS  # set SPIDER_IMAGE_ROOT or edit config.py
 
 
 def load_data(filepath):
@@ -182,9 +178,14 @@ def plot_pseudotime_density(df: pd.DataFrame, out_dir: Path, bins: int = 60):
     """
     appendix_dir = _ensure_appendix_dir(out_dir)
 
+    # Shared bin edges over [0, 1] so every stage (and the slide-density plot)
+    # uses the same bin width; passing an int would bin each stage over its
+    # own min-max range and make counts incomparable.
+    bin_edges = np.linspace(0, 1, bins + 1)
+
     # Overall histogram
     fig, ax = plt.subplots(figsize=(5, 3.2), dpi=300)
-    ax.hist(df["pseudotime_norm"].values, bins=bins)
+    ax.hist(df["pseudotime_norm"].values, bins=bin_edges)
     ax.set_xlabel("Diffusion Pseudotime")
     ax.set_ylabel("Count")
     ax.set_title("Pseudotime density (all patches)")
@@ -204,7 +205,7 @@ def plot_pseudotime_density(df: pd.DataFrame, out_dir: Path, bins: int = 60):
             continue
         ax.hist(
             df.loc[mask, "pseudotime_norm"].values,
-            bins=bins,
+            bins=bin_edges,
             alpha=0.5,
             label=stage,
             color=STAGE_COLORS.get(stage, None),
@@ -1134,17 +1135,29 @@ def generate_appendix_diagnostics(df: pd.DataFrame, base_plots_dir: Path):
 
 def main():
     parser = argparse.ArgumentParser()
-    default_path = results_dir / "crc_conventional_uni2_2000_cellcounts.csv"
+    default_path = config.CELL_COUNTS_DIR / "crc_conventional_uni2_2000_cellcounts.csv"
     parser.add_argument("--input", type=str, default=str(default_path))
+    parser.add_argument("--model", type=str, default=None,
+                        help="Model name (e.g. uni2, virchow2). "
+                             "Used to create a model-specific output subdirectory.")
     args = parser.parse_args()
-    
-    input_path = Path(args.input)
-    print(f"📂 Loading: {input_path}")
-    df = load_data(input_path)
-    
-    plot_panel_b_final(df, plots_dir / "standardized_abundance.png")
 
-    generate_appendix_diagnostics(df, plots_dir)
+    input_path = Path(args.input)
+
+    # Determine output directory: base/model_name/ if --model given
+    if args.model:
+        model_dir = plots_dir / args.model
+    else:
+        model_dir = plots_dir
+    model_dir.mkdir(parents=True, exist_ok=True)
+
+    print(f"📂 Loading: {input_path}")
+    print(f"📁 Output dir: {model_dir}")
+    df = load_data(input_path)
+
+    plot_panel_b_final(df, model_dir / "standardized_abundance.png")
+
+    generate_appendix_diagnostics(df, model_dir)
 
 
 if __name__ == "__main__":

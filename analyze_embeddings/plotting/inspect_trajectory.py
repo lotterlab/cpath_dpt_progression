@@ -20,6 +20,7 @@ import logging
 import time
 from typing import Dict, List, Optional
 from dataclasses import dataclass, field
+import textwrap
 
 import numpy as np
 import pandas as pd
@@ -30,6 +31,7 @@ import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 from matplotlib.gridspec import GridSpec
+import matplotlib.patches as mpatches
 from PIL import Image
 from skimage.segmentation import find_boundaries
 
@@ -81,11 +83,7 @@ MPP_20X = 0.5
 INFERENCE_IMAGE_SIZE = 224
 
 # Local image directories (mapping bucket names to local paths)
-LOCAL_IMAGE_DIRS = {
-    "spider-colorectal": Path.home() / "data" / "spider-col",
-    "spider-skin": Path.home() / "data" / "spider-skin",
-    "spider-breast": Path.home() / "data" / "spider-breast",
-}
+LOCAL_IMAGE_DIRS = config.LOCAL_IMAGE_DIRS  # set SPIDER_IMAGE_ROOT or edit config.py
 
 # HistoPLUS class mapping (from model output names to readable names)
 HISTOPLUS_TO_COLUMN = {
@@ -117,7 +115,20 @@ KEY_CELL_TYPES = [
     "epithelial_normal",
     "fibroblasts",
     "lymphocytes",
+    "neutrophils",
+    "apoptotic_bodies",
 ]
+
+# Rare / small classes drawn with higher opacity in the overlay so they are visible
+EMPHASIZED_CELL_TYPES = {"neutrophils", "apoptotic_bodies", "mitotic_figures"}
+OVERLAY_ALPHA = 0.65
+OVERLAY_ALPHA_EMPHASIZED = 0.9
+# The tissue under the masks is toned down so the mask colors stand out: partly desaturated,
+# then faded toward white (0 = unchanged, 1 = fully grey / fully white).
+OVERLAY_BACKGROUND_DESATURATE = 0.6
+OVERLAY_BACKGROUND_FADE = 0.5
+# Each mask gets a thin outline in a darker shade of its own color
+OVERLAY_OUTLINE_DARKEN = 0.55
 
 # Whether to plot proportions (fraction of total cells) or raw counts
 PLOT_PROPORTIONS = True
@@ -136,11 +147,13 @@ CELL_COLORS = {
     "endothelial": (0.2, 0.6, 0.4),          # Teal
     "red_blood_cells": (0.8, 0.2, 0.2),      # Dark red
     "mitotic_figures": (1.0, 1.0, 0.0),      # Yellow
-    "apoptotic_bodies": (0.3, 0.3, 0.3),     # Dark grey
+    "apoptotic_bodies": (0.0, 0.0, 0.0),     # Black
     "minor_stromal": (0.5, 0.5, 0.5),        # Grey
 }
 
-# HistoPLUS class index to column name (for overlay visualization)
+# HistoPLUS class index to column name (for overlay visualization).
+# Fallback only: HistoPLUSCellCounter.__init__ rebuilds this from the loaded
+# model's own class_mapping so the overlay colors always match the model.
 HISTOPLUS_CLASS_IDX = {
     1: "cancer_cells",
     2: "lymphocytes",
@@ -347,6 +360,25 @@ class HistoPLUSCellCounter:
         self.postprocess_fn = self.segmentor.get_postprocess_fn()
         self.class_mapping = self.segmentor.class_mapping
         logger.info(f"   Cell types: {list(self.class_mapping.values())}")
+        self._sync_class_idx()
+
+    def _sync_class_idx(self):
+        """Rebuild HISTOPLUS_CLASS_IDX from the model's class_mapping (idx -> name
+        or name -> idx), so overlay colors use the model's actual label indices."""
+        global HISTOPLUS_CLASS_IDX
+        items = list(self.class_mapping.items())
+        if not items:
+            return
+        if isinstance(items[0][0], str):           # name -> idx
+            items = [(idx, name) for name, idx in items]
+        rebuilt = {}
+        for idx, name in items:
+            col = HISTOPLUS_TO_COLUMN.get(name)
+            if col is not None and int(idx) > 0:
+                rebuilt[int(idx)] = col
+        if rebuilt:
+            HISTOPLUS_CLASS_IDX = rebuilt
+            logger.info(f"   Overlay class indices synced from model ({len(rebuilt)} classes)")
 
         # Normalization parameters (ImageNet)
         self.mean = torch.tensor([0.485, 0.456, 0.406]).view(3, 1, 1)
@@ -502,8 +534,13 @@ def compute_trajectory(
 # VISUALIZATION
 # =============================================================================
 
-def create_overlay(img_pil: Image.Image, type_map: np.ndarray, alpha: float = 0.4) -> Image.Image:
-    """Create a visualization overlay showing cell type predictions."""
+def create_overlay(img_pil: Image.Image, type_map: np.ndarray, alpha: float = OVERLAY_ALPHA) -> Image.Image:
+    """Create a visualization overlay showing cell type predictions.
+
+    The tissue is toned down (partly desaturated and faded toward white) so the masks are
+    what the eye sees first. Every predicted class is filled with its CELL_COLORS color and
+    outlined in a darker shade of it. Rare classes in EMPHASIZED_CELL_TYPES are blended at
+    OVERLAY_ALPHA_EMPHASIZED so small objects (neutrophils, apoptotic bodies) stay visible."""
     img_arr = np.array(img_pil).astype(np.float32)
 
     # Resize type_map if needed
@@ -512,7 +549,13 @@ def create_overlay(img_pil: Image.Image, type_map: np.ndarray, alpha: float = 0.
         type_map = resize(type_map, (img_pil.size[1], img_pil.size[0]),
                           order=0, preserve_range=True).astype(int)
 
+    # Toned-down tissue
+    grey = (img_arr @ np.array([0.299, 0.587, 0.114], dtype=np.float32))[..., None]
+    base = (1 - OVERLAY_BACKGROUND_DESATURATE) * img_arr + OVERLAY_BACKGROUND_DESATURATE * grey
+    base = (1 - OVERLAY_BACKGROUND_FADE) * base + OVERLAY_BACKGROUND_FADE * 255.0
+
     label_rgb = np.zeros_like(img_arr)
+    alpha_map = np.full(type_map.shape, alpha, dtype=np.float32)
 
     for class_idx, col_name in HISTOPLUS_CLASS_IDX.items():
         mask = (type_map == class_idx)
@@ -522,20 +565,71 @@ def create_overlay(img_pil: Image.Image, type_map: np.ndarray, alpha: float = 0.
         color = CELL_COLORS.get(col_name, (0.5, 0.5, 0.5))
         for c in range(3):
             label_rgb[mask, c] = color[c] * 255
+        if col_name in EMPHASIZED_CELL_TYPES:
+            alpha_map[mask] = OVERLAY_ALPHA_EMPHASIZED
 
     foreground_mask = (type_map > 0)
-    overlay = img_arr.copy()
+    overlay = base.copy()
 
     if np.any(foreground_mask):
+        a = alpha_map[foreground_mask][:, None]
         overlay[foreground_mask] = (
-            (1 - alpha) * img_arr[foreground_mask] +
-            alpha * label_rgb[foreground_mask]
+            (1 - a) * base[foreground_mask] +
+            a * label_rgb[foreground_mask]
         )
 
-    boundaries = find_boundaries(type_map, mode='thin')
-    overlay[boundaries] = [255, 255, 255]
+    # Outline each mask, just inside its edge, in a darker shade of its own color
+    outline = find_boundaries(type_map, mode='inner') & foreground_mask
+    overlay[outline] = label_rgb[outline] * OVERLAY_OUTLINE_DARKEN
 
-    return Image.fromarray(overlay.astype(np.uint8))
+    return Image.fromarray(np.clip(overlay, 0, 255).astype(np.uint8))
+
+
+def classes_in_type_map(type_map: Optional[np.ndarray]) -> set:
+    """Column names of all cell classes that have at least one pixel in the type map."""
+    if type_map is None:
+        return set()
+    present = set(np.unique(type_map).tolist())
+    return {col for idx, col in HISTOPLUS_CLASS_IDX.items() if idx in present}
+
+
+def add_overlay_color_key(ax, patches_data: list, title: str = "Segmentation Overlay\nCell Type Key"):
+    """Draw the key for the segmentation overlays: one swatch per cell class that appears
+    in any overlay, in the same CELL_COLORS the masks are filled with."""
+    present = set()
+    for pdata in patches_data:
+        present |= pdata.get('present_classes', set())
+    # Stable order: KEY types first, then the rest in HistoPLUS order
+    ordered = [ct for ct in KEY_CELL_TYPES if ct in present] + \
+              [ct for ct in CELL_TYPE_COLUMNS if ct in present and ct not in KEY_CELL_TYPES]
+    handles = [mpatches.Patch(facecolor=CELL_COLORS.get(ct, (0.5, 0.5, 0.5)), edgecolor='#444444',
+                              linewidth=0.5, label=COLUMN_TO_DISPLAY.get(ct, ct)) for ct in ordered]
+    ax.axis('off')
+    if not handles:
+        return
+    legend = ax.legend(handles=handles, loc='center left', bbox_to_anchor=(0.0, 0.5), ncol=1,
+                       frameon=True, edgecolor='#bbbbbb', fancybox=False, borderpad=0.9,
+                       fontsize=12, title=title, title_fontsize=12,
+                       handlelength=1.5, handleheight=1.1, labelspacing=0.55)
+    legend.get_title().set_fontweight('bold')
+    legend.get_title().set_multialignment('center')
+
+
+def _image_grid(fig, n: int, trend_height: float):
+    """GridSpec shared by both figures. Rows: original patches | segmentation overlays |
+    trend plot. Columns: one per patch, plus a last column for the overlay color key."""
+    return GridSpec(3, n + 1, figure=fig, height_ratios=[1, 1, trend_height],
+                    width_ratios=[1] * n + [1.15], hspace=0.15, wspace=0.08)
+
+
+def _row_label(ax, text: str):
+    """Rotated label to the left of the first image in a row."""
+    ax.text(-0.07, 0.5, text, transform=ax.transAxes, rotation=90, ha='center', va='center',
+            fontsize=10, fontweight='bold')
+
+
+def _stage_label(stage_name: str, width: int = 18) -> str:
+    return textwrap.fill(stage_name, width=width, break_on_hyphens=False)
 
 
 def generate_figure_key_classes(
@@ -550,8 +644,8 @@ def generate_figure_key_classes(
     """Generate figure with key cell types (counts or proportions)."""
     n = len(patches_data)
 
-    fig = plt.figure(figsize=(n * 2.5, 9))
-    gs = GridSpec(3, n, height_ratios=[1, 1, 0.9], hspace=0.15, wspace=0.08)
+    fig = plt.figure(figsize=(n * 2.5 + 2.9, 9.4))
+    gs = _image_grid(fig, n, trend_height=0.9)
 
     pseudotimes = []
     trends = {ct: [] for ct in KEY_CELL_TYPES}
@@ -564,16 +658,15 @@ def generate_figure_key_classes(
         ax_orig = fig.add_subplot(gs[0, i])
         ax_orig.imshow(pdata['orig_img'])
         ax_orig.axis('off')
-
-        stage_name = pdata['stage']
-        if len(stage_name) > 20:
-            stage_name = stage_name[:18] + "..."
-        ax_orig.set_title(f"PT: {pt:.2f}\n{stage_name}", fontsize=9, fontweight='bold')
+        ax_orig.set_title(f"PT: {pt:.2f}\n{_stage_label(pdata['stage'])}", fontsize=9, fontweight='bold')
 
         # Row 2: Segmentation Overlay
         ax_seg = fig.add_subplot(gs[1, i])
         ax_seg.imshow(pdata['overlay_img'])
         ax_seg.axis('off')
+        if i == 0:
+            _row_label(ax_orig, "H&E patch")
+            _row_label(ax_seg, "Segmentation overlay")
 
         # Get values (proportion or count)
         total = pdata['total_cells']
@@ -585,24 +678,28 @@ def generate_figure_key_classes(
                 value = count
             trends[ct].append(value)
 
-    # Row 3: Trend Plot
-    ax_trend = fig.add_subplot(gs[2, :])
+    # Right of the image rows: color key for the segmentation overlays
+    add_overlay_color_key(fig.add_subplot(gs[0:2, n]), patches_data)
+
+    # Row 3: Trend Plot (always shows every KEY cell type; flat zero = not detected)
+    ax_trend = fig.add_subplot(gs[2, :n])
 
     for ct in KEY_CELL_TYPES:
         color = CELL_COLORS.get(ct, (0.5, 0.5, 0.5))
         y_vals = trends[ct]
 
         display_name = COLUMN_TO_DISPLAY.get(ct, ct.replace("_", " ").title())
+        if max(y_vals) <= 0:
+            display_name += " (not detected)"
 
-        if max(y_vals) > 0:
-            ax_trend.plot(
-                pseudotimes, y_vals,
-                marker='o', markersize=6,
-                linewidth=2,
-                label=display_name,
-                color=color,
-                alpha=0.85
-            )
+        ax_trend.plot(
+            pseudotimes, y_vals,
+            marker='o', markersize=6,
+            linewidth=2,
+            label=display_name,
+            color=color,
+            alpha=0.85
+        )
 
     ax_trend.set_xlabel("Diffusion Pseudotime (Normalized)", fontsize=11)
     
@@ -624,9 +721,9 @@ def generate_figure_key_classes(
     ax_trend.legend(
         loc='upper center',
         bbox_to_anchor=(0.5, -0.18),
-        ncol=min(len(KEY_CELL_TYPES), 5),
+        ncol=min(len(KEY_CELL_TYPES), 6),
         frameon=False,
-        fontsize=9
+        fontsize=12
     )
 
     seed_str = f"seed={seed}" if seed is not None else "random"
@@ -658,8 +755,8 @@ def generate_figure_all_classes(
     """Generate figure with ALL cell types plotted (counts or proportions)."""
     n = len(patches_data)
 
-    fig = plt.figure(figsize=(n * 2.5, 11))
-    gs = GridSpec(3, n, height_ratios=[1, 1, 1.2], hspace=0.15, wspace=0.08)
+    fig = plt.figure(figsize=(n * 2.5 + 2.9, 11.4))
+    gs = _image_grid(fig, n, trend_height=1.2)
 
     pseudotimes = []
     trends = {ct: [] for ct in CELL_TYPE_COLUMNS}
@@ -672,16 +769,15 @@ def generate_figure_all_classes(
         ax_orig = fig.add_subplot(gs[0, i])
         ax_orig.imshow(pdata['orig_img'])
         ax_orig.axis('off')
-
-        stage_name = pdata['stage']
-        if len(stage_name) > 20:
-            stage_name = stage_name[:18] + "..."
-        ax_orig.set_title(f"PT: {pt:.2f}\n{stage_name}", fontsize=9, fontweight='bold')
+        ax_orig.set_title(f"PT: {pt:.2f}\n{_stage_label(pdata['stage'])}", fontsize=9, fontweight='bold')
 
         # Row 2: Segmentation Overlay
         ax_seg = fig.add_subplot(gs[1, i])
         ax_seg.imshow(pdata['overlay_img'])
         ax_seg.axis('off')
+        if i == 0:
+            _row_label(ax_orig, "H&E patch")
+            _row_label(ax_seg, "Segmentation overlay")
 
         # Get values (proportion or count)
         total = pdata['total_cells']
@@ -693,8 +789,11 @@ def generate_figure_all_classes(
                 value = count
             trends[ct].append(value)
 
+    # Right of the image rows: color key for the segmentation overlays
+    add_overlay_color_key(fig.add_subplot(gs[0:2, n]), patches_data)
+
     # Row 3: Trend Plot with ALL classes
-    ax_trend = fig.add_subplot(gs[2, :])
+    ax_trend = fig.add_subplot(gs[2, :n])
 
     # Sort classes by max value for cleaner legend ordering
     class_max_vals = [(ct, max(trends[ct])) for ct in CELL_TYPE_COLUMNS]
@@ -746,14 +845,14 @@ def generate_figure_all_classes(
         bbox_to_anchor=(0.5, -0.15),
         ncol=4,
         frameon=True,
-        fontsize=8,
+        fontsize=12,
         fancybox=True
     )
 
     seed_str = f"seed={seed}" if seed is not None else "random"
     metric_type = "Cell Proportions" if use_proportions else "Cell Counts"
     fig.suptitle(
-        f"All {metric_type} Along Trajectory: {progression_name}\n"
+        f"{metric_type} Along Trajectory: {progression_name}\n"
         f"Model: {model_name} (τ = {tau:.2f}) | {seed_str}",
         fontsize=12,
         fontweight='bold',
@@ -922,7 +1021,8 @@ def main():
                 'overlay_img': overlay,
                 'counts': cell_counts.counts,
                 'total_cells': cell_counts.total_cells,
-                'stage': cls
+                'stage': cls,
+                'present_classes': classes_in_type_map(cell_counts.type_map),
             })
 
             cancer_count = cell_counts.counts.get("cancer_cells", 0)

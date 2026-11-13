@@ -1,9 +1,10 @@
 #!/usr/bin/env python
 """
 Plotting Script: Stage Permutation Specificity (Final Paper Version).
-Grid layout with colored stars matching Figure 1 + Global ICML Title.
+Grid layout, one panel per progression, with colored stars for the true ordering.
 """
 
+import argparse
 import sys
 from pathlib import Path
 import math
@@ -22,7 +23,7 @@ import plotting.plot_config as pcfg
 # -----------------------------------------------------------------------------
 # Configuration
 # -----------------------------------------------------------------------------
-# Use the shared ICML style from your config file
+# Use the shared style from plot_config
 pcfg.set_icml_style()
 
 PERM_FILE = config.PERMUTATION_RESULTS_OUTPUT_PATH
@@ -33,10 +34,33 @@ OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 # The specific embedding type that contains the canonical signal + CIs
 TARGET_EMBEDDING = 'final_embedding'
 
-def plot_specificity_grid():
+def _filter_to_matching_first_stage(df_perm: pd.DataFrame) -> pd.DataFrame:
+    """Drop permuted rows whose first stage doesn't match the canonical first stage.
+
+    The canonical first stage is taken from the `type == 'canonical'` row for each
+    progression (constant across models). Returns a filtered copy of df_perm
+    containing only canonical rows plus permuted rows whose first stage matches.
+    """
+    canonical_first = (
+        df_perm[df_perm['type'] == 'canonical']
+        .groupby('progression')['order_str']
+        .first()
+        .apply(lambda s: s.split(' -> ')[0])
+        .to_dict()
+    )
+    first_stage = df_perm['order_str'].str.split(' -> ').str[0]
+    canonical_match = df_perm['progression'].map(canonical_first) == first_stage
+    keep = (df_perm['type'] == 'canonical') | canonical_match
+    return df_perm[keep].copy()
+
+
+def plot_specificity_grid(match_first_stage: bool = False, null_as_dots: bool = False, show_ci: bool = True):
     # 1. Load Data
     df_real = pd.read_csv(REAL_FILE)
     df_perm = pd.read_csv(PERM_FILE)
+
+    if match_first_stage:
+        df_perm = _filter_to_matching_first_stage(df_perm)
 
     # 2. Filter Data
     df_noise = df_perm[df_perm['type'] == 'permuted'].copy()
@@ -72,15 +96,16 @@ def plot_specificity_grid():
         noise_subset = df_noise[df_noise['progression'] == prog]
         signal_subset = df_signal[df_signal['progression'] == prog]
         
-        # --- A. Plot Null Distribution (Boxplot) ---
-        sns.boxplot(data=noise_subset, x='model', y='tau', ax=ax,
-                    color='#e0e0e0', width=0.5, showfliers=False,
-                    boxprops={'linewidth': 1.5, 'edgecolor': '#555555'},
-                    medianprops={'color': '#333333', 'linewidth': 1.5})
-        
-        # Strip plot (Raw points)
-        # sns.stripplot(data=noise_subset, x='model', y='tau', ax=ax,
-        #               color='#333333', alpha=0.3, jitter=0.2, size=3, zorder=0)
+        # --- A. Plot Null Distribution ---
+        if null_as_dots:
+            sns.stripplot(data=noise_subset, x='model', y='tau', ax=ax,
+                          order=pcfg.MODEL_ORDER,
+                          color='#555555', alpha=0.55, jitter=0.2, size=4, zorder=2)
+        else:
+            sns.boxplot(data=noise_subset, x='model', y='tau', ax=ax,
+                        color='#e0e0e0', width=0.5, showfliers=False,
+                        boxprops={'linewidth': 1.5, 'edgecolor': '#555555'},
+                        medianprops={'color': '#333333', 'linewidth': 1.5})
         
         # --- B. Plot True Signal (Star + CI) ---
         for j, model in enumerate(pcfg.MODEL_ORDER):
@@ -96,9 +121,9 @@ def plot_specificity_grid():
                            edgecolor='white', linewidth=0.5, zorder=10)
                 
                 # 2. Plot the Error Bars
-                if not np.isnan(lower) and not np.isnan(upper):
+                if show_ci and not np.isnan(lower) and not np.isnan(upper):
                     yerr = [[val - lower], [upper - val]]
-                    ax.errorbar(j, val, yerr=yerr, fmt='none', ecolor='black', 
+                    ax.errorbar(j, val, yerr=yerr, fmt='none', ecolor='black',
                                 elinewidth=1.8, capsize=5, zorder=11)
 
         # --- Formatting ---
@@ -117,6 +142,7 @@ def plot_specificity_grid():
         else:
             ax.set_xlabel("")
 
+        ax.set_ylim(top=0.8)
         ax.yaxis.grid(True, linestyle='--', alpha=0.3, color='grey')
         ax.xaxis.grid(False)
         sns.despine(ax=ax, trim=True)
@@ -132,11 +158,18 @@ def plot_specificity_grid():
     #              fontsize=16, fontweight='bold', y=0.98)
 
     # 2. Add Legend
+    if null_as_dots:
+        null_legend = Line2D([0], [0], marker='o', color='w', markerfacecolor='#555555',
+                             markeredgecolor='#555555', alpha=0.55, markersize=8,
+                             label='Random Orderings')
+    else:
+        null_legend = Line2D([0], [0], marker='o', color='w', markerfacecolor='#e0e0e0',
+                             markeredgecolor='grey', markersize=8,
+                             label='Random Orderings')
     legend_elements = [
-        Line2D([0], [0], marker='*', color='w', markerfacecolor='black', 
-               markersize=14, label='Biological Ordering (Real)'),
-        Line2D([0], [0], marker='o', color='w', markerfacecolor='#e0e0e0', 
-               markeredgecolor='grey', markersize=8, label='Random Permutations (Null)')
+        Line2D([0], [0], marker='*', color='w', markerfacecolor='black',
+               markersize=14, label='Biological Ordering'),
+        null_legend,
     ]
     
     fig.legend(handles=legend_elements, loc='upper center', 
@@ -148,9 +181,39 @@ def plot_specificity_grid():
     
     output_subdir = OUTPUT_DIR / "permutation"
     output_subdir.mkdir(parents=True, exist_ok=True)
-    output_path = output_subdir / f"permutation_plot.png"
+    suffix = ""
+    if match_first_stage:
+        suffix += "_match_first_stage"
+    if null_as_dots:
+        suffix += "_dots"
+    if not show_ci:
+        suffix += "_no_ci"
+    output_path = output_subdir / f"permutation_plot{suffix}.png"
     plt.savefig(output_path, dpi=300, bbox_inches='tight')
     print(f"Plot saved to {output_path}")
 
+
+def parse_args():
+    parser = argparse.ArgumentParser(description="Plot per-progression permutation specificity.")
+    parser.add_argument(
+        "--match-first-stage", action="store_true",
+        help="Drop permutations whose first stage differs from the canonical first stage."
+    )
+    parser.add_argument(
+        "--null-as-dots", action="store_true",
+        help="Render the null distribution as a stripplot (dots) instead of a boxplot."
+    )
+    parser.add_argument(
+        "--no-ci", action="store_true",
+        help="Hide the confidence interval error bars on the canonical (star) points."
+    )
+    return parser.parse_args()
+
+
 if __name__ == "__main__":
-    plot_specificity_grid()
+    args = parse_args()
+    plot_specificity_grid(
+        match_first_stage=args.match_first_stage,
+        null_as_dots=args.null_as_dots,
+        show_ci=not args.no_ci,
+    )

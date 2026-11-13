@@ -1,0 +1,31 @@
+ordering_method,rank,model,mean_tau
+DPT,1,UNI-2,0.730
+DPT,2,Virchow-2,0.715
+DPT,3,Prov-GigaPath,0.666
+DPT,4,CONCH,0.645
+DPT,5,MuSK,0.591
+DPT,6,DINOv2,0.475
+k-NN Geod.,1,UNI-2,0.702
+k-NN Geod.,2,Virchow-2,0.699
+k-NN Geod.,3,Prov-GigaPath,0.637
+k-NN Geod.,4,CONCH,0.590
+k-NN Geod.,5,MuSK,0.542
+k-NN Geod.,6,DINOv2,0.324
+Centroid Dist.,1,UNI-2,0.694
+Centroid Dist.,2,Virchow-2,0.687
+Centroid Dist.,3,CONCH,0.613
+Centroid Dist.,4,Prov-GigaPath,0.600
+Centroid Dist.,5,MuSK,0.573
+Centroid Dist.,6,DINOv2,0.334
+DC1,1,UNI-2,0.657
+DC1,2,Virchow-2,0.648
+DC1,3,MuSK,0.634
+DC1,4,CONCH,0.625
+DC1,5,Prov-GigaPath,0.545
+DC1,6,DINOv2,0.513
+PCA Proj.,1,CONCH,0.607
+PCA Proj.,2,MuSK,0.579
+PCA Proj.,3,UNI-2,0.557
+PCA Proj.,4,Virchow-2,0.526
+PCA Proj.,5,DINOv2,0.449
+PCA Proj.,6,Prov-GigaPath,0.377

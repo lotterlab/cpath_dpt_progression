@@ -78,13 +78,33 @@ class ProgressionEmbeddingDataset:
     # 1. Sampling & Registry Logic (Metadata Only)
     # --------------------------------------------------------------------------
 
+    def class_patch_counts(self) -> dict:
+        """Available patches per class -- the cohort's empirical class distribution."""
+        r = self.registry.drop_duplicates(subset=[RegistryColumns.PATCH_ID])
+        return r[RegistryColumns.CLASS].value_counts().to_dict()
+
+    def slide_ids(self) -> List[str]:
+        """All distinct slide ids, sorted, so a caller can split the cohort by slide."""
+        return sorted(self.registry[RegistryColumns.SLIDE_ID].unique())
+
     def sample_patch_ids(
         self,
-        n_per_class: int,
+        n_per_class,
         max_per_slide: int,
-        seed: int = 42
+        seed: int = 42,
+        slides: Optional[Set[str]] = None,
     ) -> Set[str]:
-        """Slide-aware sampling of patch_ids that exist in ALL models."""
+        """Slide-aware sampling of patch_ids that exist in ALL models.
+
+        n_per_class may be an int (the same quota for every class, the original
+        behaviour) or a dict mapping class name -> quota, which is what the
+        class-imbalance sensitivity analysis needs. Both paths run the identical
+        slide-aware loop, so an imbalanced cohort is drawn exactly the way a
+        balanced one is.
+        """
+        quotas = (n_per_class if isinstance(n_per_class, dict)
+                  else {cls: n_per_class for cls in self.classes})
+
         valid_patches = set(self.registry[RegistryColumns.PATCH_ID].unique())
         rng = np.random.default_rng(seed)
 
@@ -92,9 +112,22 @@ class ProgressionEmbeddingDataset:
             self.registry[RegistryColumns.PATCH_ID].isin(valid_patches)
         ].drop_duplicates(subset=[RegistryColumns.PATCH_ID])
 
+        # Restricting to a slide subset lets a caller split the cohort into
+        # disjoint halves at the slide level, so no slide contributes patches to
+        # both halves. Patches from one slide are highly correlated, so a
+        # patch-level split would leak between halves.
+        if slides is not None:
+            valid_registry = valid_registry[
+                valid_registry[RegistryColumns.SLIDE_ID].isin(slides)
+            ]
+
         sampled = set()
 
         for cls in self.classes:
+            quota = quotas.get(cls, 0)
+            if quota <= 0:
+                continue
+
             class_df = valid_registry[valid_registry[RegistryColumns.CLASS] == cls]
             slides = class_df.groupby(RegistryColumns.SLIDE_ID)[RegistryColumns.PATCH_ID].apply(list).to_dict()
 
@@ -103,13 +136,13 @@ class ProgressionEmbeddingDataset:
 
             class_samples = []
             for slide_id in slide_ids:
-                if len(class_samples) >= n_per_class:
+                if len(class_samples) >= quota:
                     break
 
                 patches = slides[slide_id]
                 rng.shuffle(patches)
 
-                available = n_per_class - len(class_samples)
+                available = quota - len(class_samples)
                 take = min(len(patches), max_per_slide, available)
                 class_samples.extend(patches[:take])
 

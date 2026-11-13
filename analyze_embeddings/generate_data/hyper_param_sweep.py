@@ -8,6 +8,7 @@ Usage:
     python generate_data/hyper_param_sweep.py --progression CRC-Serrated
     python generate_data/hyper_param_sweep.py --k_values 10 50 100 200
     python generate_data/hyper_param_sweep.py --test
+    python generate_data/hyper_param_sweep.py --plot-only   # redraw from stored CSV
 """
 
 import argparse
@@ -113,9 +114,9 @@ def plot_sweep_results(df: pd.DataFrame, output_path: str = "k_sweep_plot.png"):
         linewidth=2.5,
         palette="viridis"
     )
-    axes[0].set_title("Trajectory Fidelity (Kendall's tau) vs. Neighbors (k)", fontsize=14, fontweight='bold')
+    axes[0].set_title("Trajectory Fidelity (Kendall's τ) vs. Neighbors (k)", fontsize=14, fontweight='bold')
     axes[0].set_xlabel("Number of Neighbors (k)", fontsize=12)
-    axes[0].set_ylabel("Kendall's tau", fontsize=12)
+    axes[0].set_ylabel("Kendall's τ", fontsize=12)
     axes[0].legend(title="Model", loc="best", fontsize=10)
 
     # Plot 2: Trustworthiness
@@ -218,11 +219,23 @@ def parse_args():
         "--test", action="store_true",
         help="Test mode: minimal samples, output to results/test/"
     )
+    parser.add_argument(
+        "--plot-only", action="store_true",
+        help="Skip the sweep and redraw the figure from the stored CSV "
+             "(results/<RESULTS_RUN>/hyperparam_sweep_k_results.csv)"
+    )
     return parser.parse_args()
 
 
 def main():
     args = parse_args()
+
+    if args.plot_only:
+        df = pd.read_csv(config.K_SWEEP_RESULTS_PATH)
+        plot_dir = config.PLOTS_OUTPUT_DIR / "hyperparams"
+        plot_dir.mkdir(parents=True, exist_ok=True)
+        plot_sweep_results(df, output_path=str(plot_dir / "k_sweep_analysis.png"))
+        return
 
     if args.test:
         df = run_sweep(

@@ -162,10 +162,10 @@ CATEGORY_LABEL_COLORS = {
 }
 
 # -----------------------------------------------------------------------------
-# 3. ICML Styling Function
+# 3. Styling Function
 # -----------------------------------------------------------------------------
 
-# ICML-optimized font sizes (for figures)
+# Font sizes for single- and double-column figures
 # FONT_SIZES = {
 #     'title': 18,
 #     'subtitle': 13,
@@ -194,7 +194,7 @@ FONT_SIZES = {
 }
 
 def set_icml_style():
-    """Applies ICML-compliant matplotlib style settings."""
+    """Applies the shared matplotlib style used for all paper figures."""
     sns.set_theme(style="white", context="paper", font_scale=1.2)
     
     plt.rcParams.update({

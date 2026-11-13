@@ -534,7 +534,7 @@ def plot_manifold(ax, adata, prog_config, trajectory_locs, color_by='class', sho
             x, y = coords[class_mask, 0], coords[class_mask, 1]
             color = STAGE_COLORS[i % len(STAGE_COLORS)]
             ax.scatter(x, y, c=[color], s=12, alpha=0.4, edgecolors='none', rasterized=True)
-        ax.set_title("Colored by Stage", fontsize=pcfg.FONT_SIZES['axis_label'] + 1, 
+        ax.set_title("Colored by Class", fontsize=pcfg.FONT_SIZES['axis_label'] + 1, 
                     fontweight='bold', color=COLORS['text_dark'], pad=8)
     else:
         # Plot by pseudotime
@@ -701,7 +701,7 @@ def create_tau_panel(fig, x, y, width, height, tau_score):
 
 def parse_args():
     parser = argparse.ArgumentParser(
-        description="Generate ICML Figure 1 - Method Overview",
+        description="Generate Figure 1 - Method Overview",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter
     )
     
@@ -894,7 +894,7 @@ def main():
         return short
     
     # Stage legend - split into two rows
-    fig.text(manifold1_left, legend_y1, "Stage:",
+    fig.text(manifold1_left, legend_y1, "Class:",
              fontsize=pcfg.FONT_SIZES['small'] + 1, fontweight='medium', color=COLORS['text_dark'], va='center')
     
     # First two stages on row 1
@@ -981,7 +981,7 @@ def main():
     interpretation = (
     "Fraction of sample pairs\n"
     "where pseudotime agrees with\n"
-    "stage order, minus those\n"
+    "class order, minus those\n"
     "that disagree, normalized.\n"
     "1 = perfect ordering\n"
     "0 = random\n"

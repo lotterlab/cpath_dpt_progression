@@ -109,11 +109,7 @@ MPP_20X = 0.5
 INFERENCE_IMAGE_SIZE_20X = 224  # Native patch size at 20x
 
 # Local image directories (mapping bucket names to local paths)
-LOCAL_IMAGE_DIRS = {
-    "spider-colorectal": Path.home() / "data" / "spider-col",
-    "spider-skin": Path.home() / "data" / "spider-skin",
-    "spider-breast": Path.home() / "data" / "spider-breast",
-}
+LOCAL_IMAGE_DIRS = config.LOCAL_IMAGE_DIRS  # set SPIDER_IMAGE_ROOT or edit config.py
 
 
 # =============================================================================

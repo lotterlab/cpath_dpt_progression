@@ -1,0 +1,24 @@
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ipynb_checkpoints/
+.venv/
+venv/
+
+# Editor / OS / tooling
+.DS_Store
+.vscode/
+.idea/
+.claude/
+
+# Local data (staged TCGA patches, embeddings, clinical downloads)
+tcga_kirc/data/
+exploratory/tcga/data
+
+# Smoke-test output (--test) and logs
+analyze_embeddings/results/test/
+*.log
+
+# Credentials
+.hf_token

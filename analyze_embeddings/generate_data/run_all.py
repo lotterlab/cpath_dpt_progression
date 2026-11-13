@@ -44,7 +44,7 @@ STEPS = [
     {
         "name": "Trajectory cell counts",
         "script": "analyze_trajectory_cellcounts.py",
-        "extra_args": ["--progression", "CRC-Conventional", "--model", "uni2"],
+        "extra_args": ["--progression", "CRC-Conventional", "--model", "uni2", "--n_per_class", "2000"],
     },
 ]
 

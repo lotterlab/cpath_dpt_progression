@@ -19,7 +19,7 @@ class OutputConfig:
 # ===============================
 # Constants
 # ===============================
-DATA_ROOT = Path("/home/pritika_l_vig_gmail_com/data")
+DATA_ROOT = Path("/path/to/your/data")  # see generate_embeddings/README.md ("Local data path")
 SHARD_SIZE = 10000
 LAYER_FRACTIONS = [0.125, 0.375, 0.625, 0.875, 1.0]
 
